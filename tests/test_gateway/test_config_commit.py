@@ -9,7 +9,7 @@ import pytest
 
 import agentos.gateway.rpc_config  # noqa: F401  ensure registration
 import agentos.gateway.rpc_onboarding  # noqa: F401  ensure registration
-from agentos.gateway.config import GatewayConfig
+from agentos.gateway.config import AgentOSRouterConfig, GatewayConfig
 from agentos.gateway.config_persist import (
     get_runtime_overrides,
     persist_config,
@@ -408,6 +408,42 @@ async def test_unmodeled_external_toml_key_blocks_writes(tmp_path) -> None:
     assert write.error is not None
     assert write.error.code == "INVALID_REQUEST"
     assert target.read_bytes() == external_bytes
+
+
+@pytest.mark.asyncio
+async def test_legacy_full_router_provider_profile_does_not_block_reloaded_gateway(
+    tmp_path,
+) -> None:
+    """A compact-profile upgrade must not flag its legacy cache as an external edit."""
+    target = tmp_path / "config.toml"
+    config = GatewayConfig(config_path=str(target))
+    payload = config.to_toml_dict()
+    payload["provider_profiles"] = {
+        "deepseek": {
+            "model": "deepseek-chat",
+            "agentos_router": AgentOSRouterConfig(tier_profile="deepseek").model_dump(
+                mode="python",
+                exclude_none=True,
+            ),
+        }
+    }
+
+    import tomli_w
+
+    target.write_text(tomli_w.dumps(payload), encoding="utf-8")
+    runtime_config = GatewayConfig.load(target)
+
+    snapshot = await get_dispatcher().dispatch(
+        "r1",
+        "config.snapshot",
+        {},
+        _ctx(runtime_config),
+    )
+
+    assert snapshot.error is None, snapshot.error
+    assert snapshot.payload["diskDiverged"] is False
+    assert snapshot.payload["writeBlocked"] is False
+    assert isinstance(snapshot.payload["revision"], str)
 
 
 @pytest.mark.asyncio
