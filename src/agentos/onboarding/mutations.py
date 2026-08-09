@@ -128,6 +128,13 @@ def _apply_provider_router_profile(
             payload["tiers"] = _router_tier_profile_defaults(str(profile.tier_profile))
         except ValueError:
             payload["tier_profile"] = None
+            payload["tiers"] = {}
+    else:
+        # The profile intentionally elides machine-written tiers.  They belong
+        # to the provider being restored, not to the provider being left, so a
+        # blank local profile must never inherit a previous cloud provider's
+        # custom tier table.
+        payload["tiers"] = {}
     return AgentOSRouterConfig(**payload)
 
 
@@ -265,7 +272,14 @@ def _reconcile_router_profile_for_provider(
         # ``enabled = False`` branch below.
         router_payload = cfg.agentos_router.model_dump(mode="python")
         router_payload["tier_profile"] = None
-        if _tiers_are_machine_written_defaults(cfg.agentos_router.tiers, old_provider, old_model):
+        if not cfg.agentos_router.tiers:
+            # An empty profile is the compact representation of machine-written
+            # tiers. Re-derive a complete local table rather than retaining the
+            # previous provider's tiers or leaving the router unusable.
+            router_payload["tiers"] = _local_provider_tiers(
+                _router_tier_profile_defaults("openrouter"), provider_id, model
+            )
+        elif _tiers_are_machine_written_defaults(cfg.agentos_router.tiers, old_provider, old_model):
             router_payload["tiers"] = _local_provider_tiers(
                 cfg.agentos_router.tiers, provider_id, model
             )

@@ -1,0 +1,142 @@
+name: Deploy AgentOS to production VPS
+
+"on":
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref (branch, tag, or full commit SHA) to deploy
+        required: true
+        default: main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agentos-production-vps
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy production gateway
+    # Production currently has no required-reviewer rule. Until one is added,
+    # do not let repository collaborators run an arbitrary ref on the VPS.
+    if: github.actor == github.repository_owner
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 45
+    environment:
+      name: production
+    env:
+      # Prefer a non-secret Environment variable, but also support an existing
+      # Environment secret without ever printing its value in the job log.
+      DEPLOY_DIR: ${{ vars.AGENTOS_DEPLOY_DIR || secrets.AGENTOS_DEPLOY_DIR }}
+      DEPLOY_USER: agentos
+      COMPOSE_PROJECT_NAME: agentos
+    steps:
+      - name: Validate deployment host and permissions
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          if [[ -z "${DEPLOY_DIR}" ]]; then
+            echo "::error::Production AGENTOS_DEPLOY_DIR variable or secret is required."
+            exit 1
+          fi
+          if [[ "${DEPLOY_DIR}" != /* || "${DEPLOY_DIR}" == / \
+            || "$(dirname "${DEPLOY_DIR}")" == / ]]; then
+            echo "::error::AGENTOS_DEPLOY_DIR must be a non-root absolute deployment directory."
+            exit 1
+          fi
+
+          command -v docker
+          command -v tar
+          command -v curl
+          git lfs version
+          sudo -n -u "${DEPLOY_USER}" -- test -d "${DEPLOY_DIR}"
+          sudo -n -u "${DEPLOY_USER}" -- test -w "${DEPLOY_DIR}"
+          sudo -n -u "${DEPLOY_USER}" -- docker compose version
+
+      - name: Check out requested revision
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          lfs: true
+          persist-credentials: false
+          ref: ${{ inputs.ref }}
+
+      - name: Verify required Git LFS assets
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git lfs pull --include="src/agentos/memory/models/**"
+          git lfs pull --include="src/agentos/agentos_router/models/**"
+          for path in \
+            src/agentos/memory/models/bge_onnx/model.onnx \
+            src/agentos/memory/models/embeddings/all-MiniLM-L6-v2-int8/model.onnx \
+            src/agentos/agentos_router/models/pilot_v1/model.onnx; do
+            test -s "${path}"
+            if head -c 42 "${path}" | grep -q "git-lfs.github.com/spec/v1"; then
+              echo "::error::${path} is a Git LFS pointer, not a hydrated asset."
+              exit 1
+            fi
+          done
+
+      - name: Stage immutable release
+        id: release
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          deploy_sha="$(git rev-parse HEAD)"
+          releases_dir="${DEPLOY_DIR}/releases"
+          release_dir="${releases_dir}/${deploy_sha}"
+          current_link="${DEPLOY_DIR}/current"
+
+          sudo -n -u "${DEPLOY_USER}" -- install -d -m 0750 -- "${releases_dir}"
+          if sudo -n -u "${DEPLOY_USER}" -- test -L "${releases_dir}"; then
+            echo "::error::Refusing a symlinked releases directory."
+            exit 1
+          fi
+          sudo -n -u "${DEPLOY_USER}" -- install -d -m 0750 -- "${release_dir}"
+
+          # Git archive would retain LFS pointer files. The checkout has
+          # hydrated them, so copy the working tree without its Git metadata.
+          tar --exclude-vcs -C "${GITHUB_WORKSPACE}" -cf - . \
+            | sudo -n -u "${DEPLOY_USER}" -- tar -xpf - -C "${release_dir}"
+
+          if sudo -n -u "${DEPLOY_USER}" -- test -e "${current_link}" \
+            && ! sudo -n -u "${DEPLOY_USER}" -- test -L "${current_link}"; then
+            echo "::error::Refusing to replace non-symlink ${current_link}."
+            exit 1
+          fi
+          sudo -n -u "${DEPLOY_USER}" -- ln -sfn -- "${release_dir}" "${current_link}"
+
+          printf 'sha=%s\n' "${deploy_sha}" >> "${GITHUB_OUTPUT}"
+
+      - name: Build and start gateway
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          compose=(docker compose --project-name "${COMPOSE_PROJECT_NAME}" \
+            --project-directory "${DEPLOY_DIR}" -f "${DEPLOY_DIR}/current/compose.yaml")
+
+          sudo -n -u "${DEPLOY_USER}" -- "${compose[@]}" build --pull gateway
+          sudo -n -u "${DEPLOY_USER}" -- "${compose[@]}" up --detach --remove-orphans gateway
+
+      - name: Verify gateway health
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          compose=(docker compose --project-name "${COMPOSE_PROJECT_NAME}" \
+            --project-directory "${DEPLOY_DIR}" -f "${DEPLOY_DIR}/current/compose.yaml")
+
+          for _attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error http://127.0.0.1:18791/healthz; then
+              sudo -n -u "${DEPLOY_USER}" -- "${compose[@]}" ps
+              exit 0
+            fi
+            sleep 2
+          done
+
+          sudo -n -u "${DEPLOY_USER}" -- "${compose[@]}" ps
+          echo "::error::Gateway did not become healthy after 60 seconds."
+          exit 1

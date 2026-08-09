@@ -55,6 +55,8 @@ root release README with task-oriented guides.
   raw capture guidance, and read-only turn replay.
 - [`operations.md`](operations.md) - sessions, cron, usage, diagnostics,
   migration, MCP server, and install inventory commands.
+- [`deployment-vps.md`](deployment-vps.md) - manual, self-hosted production VPS
+  deployment and rollback.
 - [`troubleshooting.md`](troubleshooting.md) - common install/runtime issues.
 - [`glossary.md`](glossary.md) - short definitions for product terms.
 

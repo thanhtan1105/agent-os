@@ -18,6 +18,7 @@ from __future__ import annotations
 import pytest
 
 from agentos.engine.pipeline import TurnContext
+from agentos.engine.router_decision import build_router_decision_event
 from agentos.engine.steps import agentos_router as agentos_router_step
 from agentos.engine.steps.agentos_router import apply_agentos_router
 from agentos.gateway.config import GatewayConfig
@@ -90,6 +91,9 @@ async def test_local_provider_degrades_cloud_tier_model_to_llm_model(
     assert routed.metadata["routing_degraded"] is True
     # The tier is still recorded so thinking/prompt policy for c1 still applies.
     assert routed.metadata["routed_tier"] == "c1"
+    assert routed.metadata["routed_model"] == "qwen3.5:2b"
+    assert routed.metadata["requested_routed_model"] == "openai/gpt-5.6-luna"
+    assert build_router_decision_event(routed).model == "qwen3.5:2b"
 
 
 @pytest.mark.asyncio
@@ -118,6 +122,8 @@ async def test_local_provider_honors_matching_provider_tier_model(
     assert routed.model == "qwen3.5:9b"
     assert routed.metadata.get("routing_degraded") is not True
     assert routed.metadata["routed_tier"] == "c1"
+    assert routed.metadata["routed_model"] == "qwen3.5:9b"
+    assert "requested_routed_model" not in routed.metadata
 
 
 @pytest.mark.asyncio
@@ -181,6 +187,7 @@ async def test_image_route_degrades_under_local_provider() -> None:
     assert routed.model == "qwen3.5:2b"
     assert routed.metadata["routing_degraded"] is True
     assert routed.metadata["routed_tier"] == "image_model"
+    assert routed.metadata["routed_model"] == "qwen3.5:2b"
 
 
 @pytest.mark.asyncio
@@ -203,6 +210,7 @@ async def test_router_control_hold_degrades_under_local_provider() -> None:
     assert routed.metadata["router_control_hold_applied"] is True
     assert routed.model == "qwen3.5:2b"
     assert routed.metadata["routing_degraded"] is True
+    assert routed.metadata["routed_model"] == "qwen3.5:2b"
 
 
 @pytest.mark.asyncio

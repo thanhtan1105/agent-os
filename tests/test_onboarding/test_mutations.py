@@ -636,10 +636,43 @@ def test_ollama_opencap_ollama_switch_restores_provider_model_and_router_profile
     )
 
 
-def test_provider_switch_restores_smart_routing_settings_without_judge_secret():
-    ollama = upsert_llm_provider(
-        GatewayConfig(), provider_id="ollama", model="qwen3.5:9b"
+def test_local_profile_without_custom_tiers_does_not_inherit_cloud_custom_tiers():
+    """Returning to Ollama must not display the provider it just left.
+
+    An empty saved router profile means "re-derive this provider's machine
+    defaults".  It must not leave OpenCap's custom tier table active, otherwise
+    the local runtime falls back to its own model while the chat receipt still
+    announces an OpenCap model.
+    """
+    ollama_model = "qwen3.5:9b"
+    ollama = upsert_llm_provider(GatewayConfig(), provider_id="ollama", model=ollama_model).config
+    opencap = upsert_llm_provider(
+        ollama,
+        provider_id="opencap",
+        model="glm-5.2",
+        api_key_env="OPENCAP_API_KEY",
     ).config
+    opencap.agentos_router.tiers["c1"]["model"] = "gpt-5.6-terra"
+
+    restored_ollama = upsert_llm_provider(opencap, provider_id="ollama").config
+
+    assert restored_ollama.llm.model == ollama_model
+    assert restored_ollama.agentos_router.tier_profile is None
+    assert all(
+        tier["provider"] == "ollama" and tier["model"] == ollama_model
+        for tier in restored_ollama.agentos_router.tiers.values()
+    )
+    assert restored_ollama.provider_profiles["opencap"].router.tiers["c1"]["model"] == (
+        "gpt-5.6-terra"
+    )
+
+    restored_opencap = upsert_llm_provider(restored_ollama, provider_id="opencap").config
+
+    assert restored_opencap.agentos_router.tiers["c1"]["model"] == "gpt-5.6-terra"
+
+
+def test_provider_switch_restores_smart_routing_settings_without_judge_secret():
+    ollama = upsert_llm_provider(GatewayConfig(), provider_id="ollama", model="qwen3.5:9b").config
     smart_routing = upsert_router(
         ollama,
         mode="recommended",

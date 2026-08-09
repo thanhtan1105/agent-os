@@ -1185,6 +1185,23 @@ def _degrade_model_for_local_provider(
     return routed_model
 
 
+def _routed_model_for_metadata(ctx: TurnContext, requested_model: str) -> str:
+    """Report the model actually invoked when a local route was degraded.
+
+    The RouterDecisionEvent and persisted turn usage feed the chat router
+    receipt.  A stale cloud tier under Ollama is safely pinned to ``llm.model``
+    for execution, so showing the original cloud-tier model there is misleading
+    even though the request did not use it.
+    """
+    if not ctx.metadata.get("routing_degraded"):
+        return requested_model
+    applied_model = str(ctx.model or "").strip()
+    if not applied_model:
+        return requested_model
+    ctx.metadata["requested_routed_model"] = requested_model
+    return applied_model
+
+
 async def apply_agentos_router(ctx: TurnContext) -> TurnContext:
     router_cfg = getattr(ctx.config, "agentos_router", None) if ctx.config else None
     if not router_cfg or not getattr(router_cfg, "enabled", False):
@@ -1240,7 +1257,7 @@ async def apply_agentos_router(ctx: TurnContext) -> TurnContext:
                 ctx, tier_cfg=image_tiers[tier_name], routed_model=decision.model
             )
         ctx.metadata["routed_tier"] = decision.tier
-        ctx.metadata["routed_model"] = decision.model
+        ctx.metadata["routed_model"] = _routed_model_for_metadata(ctx, decision.model)
         ctx.metadata["routing_applied"] = routing_applied
         ctx.metadata["rollout_phase"] = rollout_phase
         ctx.metadata["applied_model"] = ctx.model
@@ -1281,7 +1298,7 @@ async def apply_agentos_router(ctx: TurnContext) -> TurnContext:
                 ctx, tier_cfg=tiers.get(hold.tier, {}), routed_model=decision.model
             )
             ctx.metadata["routed_tier"] = decision.tier
-            ctx.metadata["routed_model"] = decision.model
+            ctx.metadata["routed_model"] = _routed_model_for_metadata(ctx, decision.model)
             ctx.metadata["routing_applied"] = True
             ctx.metadata["applied_model"] = ctx.model
             ctx.metadata["routing_confidence"] = decision.confidence
@@ -1444,7 +1461,7 @@ async def apply_agentos_router(ctx: TurnContext) -> TurnContext:
             ctx, tier_cfg=tiers.get(decision.tier, {}), routed_model=decision.model
         )
     ctx.metadata["routed_tier"] = decision.tier
-    ctx.metadata["routed_model"] = decision.model
+    ctx.metadata["routed_model"] = _routed_model_for_metadata(ctx, decision.model)
     ctx.metadata["routing_applied"] = routing_applied
     ctx.metadata["rollout_phase"] = rollout_phase
     ctx.metadata["applied_model"] = ctx.model
@@ -1529,7 +1546,8 @@ async def apply_agentos_router(ctx: TurnContext) -> TurnContext:
     log.debug(
         "agentos_router.routed",
         tier=decision.tier,
-        routed_model=decision.model,
+        routed_model=ctx.metadata["routed_model"],
+        requested_routed_model=ctx.metadata.get("requested_routed_model"),
         applied_model=ctx.model,
         routing_applied=routing_applied,
         confidence=decision.confidence,

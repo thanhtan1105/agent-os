@@ -146,6 +146,22 @@ def _assert_payload_is_modeled(payload: Any, model_value: Any, prefix: str = "")
     """Fail closed when Pydantic would silently discard an external TOML key."""
     from pydantic import BaseModel
 
+    from agentos.gateway.config import AgentOSRouterConfig, ProviderProfileConfig
+
+    if isinstance(payload, dict) and isinstance(model_value, ProviderProfileConfig):
+        # Provider-switch profiles used to save the full router under
+        # ``agentos_router``. It is recoverable cache-like state that is
+        # intentionally discarded by the compact profile schema, but retain
+        # fail-closed handling for any unrecognized legacy router fields.
+        legacy_router = payload.get("agentos_router")
+        if isinstance(legacy_router, dict):
+            legacy_prefix = f"{prefix}.agentos_router" if prefix else "agentos_router"
+            _assert_payload_is_modeled(
+                legacy_router,
+                AgentOSRouterConfig(**legacy_router),
+                legacy_prefix,
+            )
+        payload = {key: value for key, value in payload.items() if key != "agentos_router"}
     if isinstance(payload, dict) and isinstance(model_value, BaseModel):
         fields = type(model_value).model_fields
         for raw_key, raw_value in payload.items():
