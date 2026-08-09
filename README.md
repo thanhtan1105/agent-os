@@ -604,6 +604,12 @@ for the clone and `git lfs pull` steps):
 docker build -t agentos:local .
 ```
 
+Before `docker compose up`, copy `.env.example` to `.env` and set an
+`AGENTOS_AUTH_TOKEN` that you do not share (for example, `openssl rand -hex 32`). The container must
+listen on `0.0.0.0` inside its network namespace so Docker can publish its
+loopback-only host port; token auth makes that listener safe if its port mapping
+is later changed.
+
 `./start.sh` (or `start.ps1` on Windows) then runs `docker compose
 up -d` and shows the gateway logs. Docker means you don't need
 Python installed on your computer — but you still need to build the

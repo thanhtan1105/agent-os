@@ -3,6 +3,11 @@ services:
     image: ${AGENTOS_GATEWAY_IMAGE:-agentos:local}
     environment:
       AGENTOS_LISTEN: "0.0.0.0"
+      # The process must bind broadly inside its Docker namespace for the
+      # loopback-only host port below to work. Token auth keeps that internal
+      # listener fail-closed if the port mapping is changed accidentally.
+      AGENTOS_AUTH_MODE: ${AGENTOS_AUTH_MODE:-token}
+      AGENTOS_AUTH_TOKEN: ${AGENTOS_AUTH_TOKEN:?Set AGENTOS_AUTH_TOKEN in .env before starting AgentOS}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       BRAVE_SEARCH_API_KEY: ${BRAVE_SEARCH_API_KEY:-}
       TZ: ${TZ:-UTC}

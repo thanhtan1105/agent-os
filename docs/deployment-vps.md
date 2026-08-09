@@ -21,6 +21,12 @@ root's `.env` file; they are not copied from Actions and must never be added to
 the repository. The workflow uses the Environment so those controls apply even
 though it runs directly on the self-hosted runner.
 
+The same `.env` must define `AGENTOS_AUTH_TOKEN`. Generate this once on the
+VPS as `agentos` with `openssl rand -hex 32`, store the result only in `.env`,
+and configure the reverse proxy or browser client to send it. Docker requires a
+non-loopback listener inside its network namespace; token auth keeps the
+loopback-only host port safe if its mapping changes.
+
 Configure a required reviewer for the `production` Environment before allowing
 anyone besides the repository owner to dispatch the workflow.
 

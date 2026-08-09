@@ -48,6 +48,14 @@ def test_compose_gateway_environment_has_openrouter_key() -> None:
         )
 
 
+def test_compose_gateway_requires_token_auth() -> None:
+    env = _load_compose()["services"]["gateway"].get("environment", {})
+    assert isinstance(env, dict), "gateway environment must use mapping syntax"
+    assert env.get("AGENTOS_AUTH_MODE") == "${AGENTOS_AUTH_MODE:-token}"
+    assert "AGENTOS_AUTH_TOKEN" in env
+    assert ":?" in str(env["AGENTOS_AUTH_TOKEN"])
+
+
 def _load_dockerfile() -> str:
     return (_ROOT / "Dockerfile").read_text(encoding="utf-8")
 
