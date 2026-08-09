@@ -6,6 +6,82 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Translation requests now route to the cheapest tier. The router scores
+  reasoning difficulty rather than task type, so an ordinary "translate this"
+  landed on `c1` even in English — and because the Pilot corpus is English-only,
+  the same request drifted a tier in either direction depending only on the
+  language it was written in: measured against the English baseline, `trivial`
+  moved from `c0` to `c1`/`c2` in 13 of 14 languages, while a genuinely hard
+  request in Chinese, Japanese, or Thai *dropped* to `c1`. A deterministic
+  detector now recognises a translate verb in the first or last paragraph of a
+  turn across English, Vietnamese, Chinese, Japanese, Korean, Thai, Indonesian,
+  French, Spanish, German, Portuguese, Russian, Arabic, and Hindi, and caps the
+  turn at `agentos_router.translate_ceiling_tier` (default `c0`; set
+  `translate_ceiling_enabled = false` to turn it off, or pick the tier in the
+  setup wizard's **Translation cap** field). Every detected translation is
+  capped, extras and all — a complaint upgrade, the large-context floor, and a
+  programming language named as the target ("translate this Python module to
+  Rust", a request to write code) are the only things that override it. Verb
+  matching is word-bounded and guarded against overloaded stems, so Vietnamese
+  `giao dịch`/`dịch vụ`, English "address translation bug", and Thai `แปลก` are
+  not mistaken for translation work.
+
+### Fixed
+
+- Streaming channels show the typing indicator again while the model is still
+  thinking. Since Telegram gained `send_streaming` its stream policy resolved to
+  `adapter_stream`, which suppressed the indicator for the whole turn — and
+  nothing can be streamed before the first token, so a user waiting out model
+  latency and tool calls saw nothing at all. Telegram and Discord now type until
+  the first chunk reaches the chat and drop the indicator the moment it lands,
+  rather than either suppressing it for the run or letting it flicker back under
+  a message that is already being edited. `typing_final` and `final_only`
+  adapters are unchanged. (Fixes #255)
+
+## [2026.8.9] - 2026-08-09
+
+### Added
+
+- Telegram replies now stream: AgentOS posts one message and edits it as the
+  answer arrives, instead of showing a typing indicator for the whole run and
+  then dropping the finished answer in at once. Edits are throttled to
+  Telegram's stricter rate limit, answers longer than 4096 characters roll over
+  into a follow-up message, and a burst of `429`s degrades to a single final
+  send with the full text intact. Adapters that implement streaming (Slack,
+  Discord, Telegram, Microsoft Teams) now declare the `streaming` capability, so
+  the manifest and the Channels page reflect what they actually do.
+  (Fixes #141)
+
+### Changed
+
+- The seven bundled GMGN skills now declare `category: crypto`, so the Skills
+  page files them under **AgentOS Crypto Skills** instead of "AgentOS Normal
+  Skills", and each card and detail dialog wears the GMGN mark badged with that
+  skill's own emoji rather than the generic package glyph. The mark is chosen on
+  `provenance.origin` behind the same shipped/bundled gate as the group itself,
+  so a local drop-in cannot mint it, and it ships with the client, so no card
+  fetches a remote image. Skill names are unchanged. (Fixes #246)
+- A model's price, context window, max output and image support are now declared
+  once, in `agentos.model_registry`; the pricing table, the catalog's window
+  fallbacks and the router tier defaults are derived from it instead of
+  restating it. Bumping a tier default used to mean editing four or five files
+  by hand with nothing checking that you did — and because both lookup tables
+  fail open in opposite directions, a forgotten entry produced a plausible wrong
+  number rather than an error. Shipping a tier default whose model is not
+  declared now fails at import. No prices or windows change. (Fixes #140)
+
+### Fixed
+
+- Shell workspace lockdown no longer misses a redirection whose operator has no
+  whitespace around it. `echo x>/etc/passwd` and `cat<in>/etc/x` used to parse as
+  having no write target at all, because the scan required a space or
+  start-of-string before `>`; the same anchor bug was in the `tee` parser. File
+  descriptor duplications (`2>&1`, `>&2`, `2>&-`) are blanked before the scan, so
+  dropping the anchor does not turn every `2>&1` into a write to a file named
+  `1`. (Fixes #197)
+
 ## [2026.8.7] - 2026-08-07
 
 ### Fixed

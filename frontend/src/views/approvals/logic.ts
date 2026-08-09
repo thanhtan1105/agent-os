@@ -11,6 +11,9 @@ import {
   type Approval,
   type ElevatedMode,
 } from '@/services/approval-monitor'
+// Registers this view's copy; it ships in this chunk, not the entry bundle.
+import '@/i18n/en/approvals'
+import { t } from '@/i18n'
 
 // Re-exported from the single elevated-mode source of truth
 // (services/approval-monitor.ts) so existing approvals-view imports of
@@ -41,27 +44,30 @@ export interface ModeOption {
 }
 
 // approvals.js:82-86 — the three approval-strategy choices, in legacy order.
-export const MODE_OPTIONS: ReadonlyArray<ModeOption> = [
-  {
-    value: 'prompt',
-    label: 'Ask every time',
-    desc: 'Every risky tool execution opens an approval prompt.',
-  },
-  {
-    value: 'auto-approve',
-    label: 'Auto approve',
-    desc: 'All tool executions are automatically approved.',
-  },
-  {
-    value: 'auto-deny',
-    label: 'Auto deny',
-    desc: 'All tool executions are automatically denied.',
-  },
-]
+export function modeOptions(): ReadonlyArray<ModeOption> {
+  return [
+    {
+      value: 'prompt',
+      label: t('approvals.modePromptLabel'),
+      desc: t('approvals.modePromptDesc'),
+    },
+    {
+      value: 'auto-approve',
+      label: t('approvals.modeAutoApproveLabel'),
+      desc: t('approvals.modeAutoApproveDesc'),
+    },
+    {
+      value: 'auto-deny',
+      label: t('approvals.modeAutoDenyLabel'),
+      desc: t('approvals.modeAutoDenyDesc'),
+    },
+  ]
+}
 
 // approvals.js:87 — active option else the first (prompt) as the fallback.
 export function activeModeOption(mode: string): ModeOption {
-  return MODE_OPTIONS.find((m) => m.value === mode) || MODE_OPTIONS[0]!
+  const options = modeOptions()
+  return options.find((m) => m.value === mode) || options[0]!
 }
 
 // approvals.js:310-314 — strategy mode -> status tone. Legacy returned the
@@ -88,30 +94,25 @@ export interface ExecutionModeSummary {
 }
 
 // approvals.js:194-216 — "<Scope> <MODE>" label + a scope/mode-specific blurb.
+// `scope` is the DISPLAY word, so the session/global branch compares against the
+// translated scope label rather than a hardcoded 'Session'. resolveExecutionMode
+// below passes exactly these values, so the two stay in step in every locale.
 export function executionModeSummary(scope: string, mode: string): ExecutionModeSummary {
-  const label = `${scope} ${String(mode).toUpperCase()}`
+  const label = t('approvals.execLabel', { scope, mode: String(mode).toUpperCase() })
+  const isSession = scope === t('approvals.scopeSession')
   if (mode === 'bypass') {
     return {
       label,
-      desc:
-        scope === 'Session'
-          ? 'Approval prompts are currently bypassed for this browser chat session.'
-          : 'Approval prompts are currently bypassed by the global permission mode.',
+      desc: isSession ? t('approvals.execBypassSession') : t('approvals.execBypassGlobal'),
     }
   }
   if (mode === 'full') {
     return {
       label,
-      desc:
-        scope === 'Session'
-          ? 'Approval and sensitive-path prompts are bypassed for this browser chat session.'
-          : 'Approval and sensitive-path prompts are bypassed by the global permission mode.',
+      desc: isSession ? t('approvals.execFullSession') : t('approvals.execFullGlobal'),
     }
   }
-  return {
-    label,
-    desc: 'Host execution is enabled; risky tool calls still use approval prompts.',
-  }
+  return { label, desc: t('approvals.execOn') }
 }
 
 /**
@@ -126,11 +127,11 @@ export function resolveExecutionMode(
   globalDefaultMode: string,
 ): ExecutionModeSummary {
   const session = normalizeElevatedMode(sessionMode)
-  if (session) return executionModeSummary('Session', session)
+  if (session) return executionModeSummary(t('approvals.scopeSession'), session)
   const global = normalizeElevatedMode(globalDefaultMode)
-  if (global) return executionModeSummary('Global', global)
+  if (global) return executionModeSummary(t('approvals.scopeGlobal'), global)
   return {
-    label: 'Approval prompts',
-    desc: 'Risky tool calls will open approval prompts.',
+    label: t('approvals.execNoneLabel'),
+    desc: t('approvals.execNoneDesc'),
   }
 }

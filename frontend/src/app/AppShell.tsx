@@ -41,6 +41,7 @@ import {
   useKeyboardShortcut,
   useShortcutOverlay,
 } from '@/components/KeyboardShortcuts'
+import { t, tPlural, useLocale } from '@/i18n'
 import { useTheme } from '@/stores/theme'
 import { useConnection } from '@/stores/connection'
 import { useApprovals } from '@/services/approval-monitor'
@@ -55,36 +56,43 @@ const ApprovalPrompt = lazy(async () => ({
 
 // app.js:72-88 — legacy sidebar information architecture: nav items grouped
 // under labels, Chat first, Approvals last under Settings. Order within each
-// group matches the legacy markup exactly.
-const NAV_GROUPS: ReadonlyArray<{
+// group matches the legacy markup exactly. Built per render rather than held in
+// a module constant: labels resolved at module-evaluation time would freeze and
+// keep the boot locale forever (#258).
+function navGroups(): ReadonlyArray<{
   label: string
   items: ReadonlyArray<{ path: string; title: string; icon: LucideIcon }>
-}> = [
-  { label: 'Chat', items: [{ path: 'chat', title: 'Chat', icon: MessageSquare }] },
-  {
-    label: 'Control',
-    items: [
-      { path: 'overview', title: 'Overview', icon: LayoutDashboard },
-      { path: 'health', title: 'Health', icon: Activity },
-      { path: 'channels', title: 'Channels', icon: Radio },
-      { path: 'mcp', title: 'MCP Servers', icon: Network },
-      { path: 'skills', title: 'Skills', icon: Puzzle },
-      { path: 'sessions', title: 'Sessions', icon: History },
-      { path: 'agents', title: 'Agents', icon: Bot },
-      { path: 'usage', title: 'Usage', icon: BarChart3 },
-      { path: 'cron', title: 'Cron', icon: CalendarClock },
-    ],
-  },
-  {
-    label: 'Settings',
-    items: [
-      { path: 'settings', title: 'Agent Setup', icon: Settings2 },
-      { path: 'env', title: 'Environment', icon: KeyRound },
-      { path: 'logs', title: 'Logs', icon: ScrollText },
-      { path: 'approvals', title: 'Approvals', icon: ShieldCheck },
-    ],
-  },
-]
+}> {
+  return [
+    {
+      label: t('shell.navGroupChat'),
+      items: [{ path: 'chat', title: t('shell.viewChat'), icon: MessageSquare }],
+    },
+    {
+      label: t('shell.navGroupControl'),
+      items: [
+        { path: 'overview', title: t('shell.viewOverview'), icon: LayoutDashboard },
+        { path: 'health', title: t('shell.viewHealth'), icon: Activity },
+        { path: 'channels', title: t('shell.viewChannels'), icon: Radio },
+        { path: 'mcp', title: t('shell.viewMcp'), icon: Network },
+        { path: 'skills', title: t('shell.viewSkills'), icon: Puzzle },
+        { path: 'sessions', title: t('shell.viewSessions'), icon: History },
+        { path: 'agents', title: t('shell.viewAgents'), icon: Bot },
+        { path: 'usage', title: t('shell.viewUsage'), icon: BarChart3 },
+        { path: 'cron', title: t('shell.viewCron'), icon: CalendarClock },
+      ],
+    },
+    {
+      label: t('shell.navGroupSettings'),
+      items: [
+        { path: 'settings', title: t('shell.viewSettings'), icon: Settings2 },
+        { path: 'env', title: t('shell.viewEnv'), icon: KeyRound },
+        { path: 'logs', title: t('shell.viewLogs'), icon: ScrollText },
+        { path: 'approvals', title: t('shell.viewApprovals'), icon: ShieldCheck },
+      ],
+    },
+  ]
+}
 
 // app.js:123 — the drawer breakpoint shared with the legacy CSS.
 function mobileQuery(): MediaQueryList | null {
@@ -108,6 +116,18 @@ const PILL_VARIANT: Record<string, string> = {
   connected: 'ok',
   connecting: 'warn',
   disconnected: 'err',
+}
+
+// Legacy derived the label by capitalising the state id. Translating it needs a
+// real map; an unmapped state still falls back to the capitalised id so a new
+// RpcState can never render an empty pill.
+function pillLabel(state: string): string {
+  const labels: Record<string, string> = {
+    connected: t('shell.connConnected'),
+    connecting: t('shell.connConnecting'),
+    disconnected: t('shell.connDisconnected'),
+  }
+  return labels[state] ?? state.charAt(0).toUpperCase() + state.slice(1)
 }
 
 export const SIDEBAR_COLLAPSED_STORAGE_KEY = 'agentos-sidebar-collapsed'
@@ -135,6 +155,11 @@ function normalizedRoutePath(pathname: string): string {
 }
 
 export function AppShell() {
+  // #258 — the shell is the one subscriber the whole console needs. Its own
+  // chrome re-renders here; the routed view is remounted through the container
+  // key below, because `<Outlet/>` hands back the same element object on a
+  // parent re-render and React would otherwise bail out of the subtree.
+  const locale = useLocale()
   const mode = useTheme((s) => s.mode)
   const toggle = useTheme((s) => s.toggle)
   const connState = useConnection((s) => s.state)
@@ -152,8 +177,8 @@ export function AppShell() {
   useKeyboardShortcut(
     {
       combo: 'escape',
-      description: 'Close the navigation drawer (mobile)',
-      category: 'Global',
+      description: t('shell.shortcutDrawerEscape'),
+      category: t('shell.shortcutCategoryGlobal'),
       documentationOnly: true,
     },
     () => {},
@@ -323,10 +348,11 @@ export function AppShell() {
   // reactive state here avoids duplicating the same readout in the header.
   const pillState = connState
   const pillVariant = PILL_VARIANT[pillState] ?? 'err'
-  const pillLabel = pillState.charAt(0).toUpperCase() + pillState.slice(1)
+  const connectionLabel = pillLabel(pillState)
   const pillOk = pillVariant === 'ok'
 
   const version = sidebarVersion(bootstrap.version)
+  const themeName = mode === 'dark' ? t('shell.themeDark') : t('shell.themeLight')
 
   const focusMainContent = (event: ReactMouseEvent<HTMLAnchorElement>) => {
     event.preventDefault()
@@ -354,13 +380,13 @@ export function AppShell() {
       style={{ ['--shell-header-h' as string]: '0px' }}
     >
       <a className="shell-skip-link" href="#main-content" onClick={focusMainContent}>
-        Skip to main content
+        {t('shell.navSkipToContent')}
       </a>
       <aside
         ref={sidebarRef}
         id="sidebar-nav"
         role={isMobile && sidebarOpen ? 'dialog' : undefined}
-        aria-label={isMobile && sidebarOpen ? 'Workspace navigation' : undefined}
+        aria-label={isMobile && sidebarOpen ? t('shell.navDrawerLandmark') : undefined}
         aria-modal={isMobile && sidebarOpen ? true : undefined}
         aria-hidden={drawerHidden || undefined}
         inert={drawerHidden || undefined}
@@ -373,16 +399,16 @@ export function AppShell() {
           <div className="shell-sidebar__brand min-w-0">
             <img className="shell-sidebar__brand-mark" src={agentosMark} alt="" />
             <span className="shell-sidebar__brand-copy">
-              <span>AgentOS</span>
-              <span className="text-primary">Control</span>
+              <span>{t('shell.brandName')}</span>
+              <span className="text-primary">{t('shell.brandSuffix')}</span>
             </span>
           </div>
           <Button
             variant="ghost"
             size="icon-sm"
             className="shell-sidebar__collapse ml-auto shrink-0 max-md:hidden"
-            title={compactSidebar ? 'Expand navigation' : 'Collapse navigation'}
-            aria-label={compactSidebar ? 'Expand navigation' : 'Collapse navigation'}
+            title={compactSidebar ? t('shell.navExpand') : t('shell.navCollapse')}
+            aria-label={compactSidebar ? t('shell.navExpand') : t('shell.navCollapse')}
             aria-controls="sidebar-nav"
             aria-expanded={!compactSidebar}
             aria-hidden={isMobile || undefined}
@@ -396,8 +422,11 @@ export function AppShell() {
             )}
           </Button>
         </div>
-        <nav aria-label="Main" className="shell-sidebar__nav flex-1 overflow-y-auto px-2.5 py-5">
-          {NAV_GROUPS.map((group) => (
+        <nav
+          aria-label={t('shell.navLandmark')}
+          className="shell-sidebar__nav flex-1 overflow-y-auto px-2.5 py-5"
+        >
+          {navGroups().map((group) => (
             <div key={group.label} className="shell-nav-group mb-6">
               <div className="shell-nav-group__label nav-group px-2.5 pb-2">{group.label}</div>
               {group.items.map((v) => {
@@ -435,9 +464,7 @@ export function AppShell() {
                         id="approval-count"
                         data-testid="approval-badge"
                         className="shell-nav-link__badge t-data ml-auto inline-flex min-w-5 items-center justify-center rounded-full border border-warn/40 px-1.5 text-[10px] font-semibold text-warn"
-                        aria-label={`${approvalCount} pending ${
-                          approvalCount === 1 ? 'approval' : 'approvals'
-                        }`}
+                        aria-label={tPlural('shell.navApprovalBadge', approvalCount)}
                       >
                         {approvalCount}
                       </span>
@@ -458,7 +485,11 @@ export function AppShell() {
             className="shell-sidebar__connection t-data"
             data-testid="nav-foot"
             data-variant={pillVariant}
-            title={version ? `${pillLabel}, version ${version}` : pillLabel}
+            title={
+              version
+                ? t('shell.connWithVersion', { state: connectionLabel, version })
+                : connectionLabel
+            }
           >
             <span
               aria-hidden="true"
@@ -471,7 +502,7 @@ export function AppShell() {
                 pillOk ? 'text-ok' : pillVariant === 'warn' ? 'text-warn' : 'text-danger'
               }`}
             >
-              {pillLabel.toUpperCase()}
+              {connectionLabel.toUpperCase()}
             </span>
             {version ? <span className="shell-sidebar__version ml-auto">v{version}</span> : null}
           </div>
@@ -486,8 +517,8 @@ export function AppShell() {
               size="icon-sm"
               className="shell-sidebar__shortcuts"
               onClick={shortcutOverlay.open}
-              title={`Keyboard shortcuts (${formatCombo(HELP_COMBO)})`}
-              aria-label="Keyboard shortcuts"
+              title={t('shell.shortcutsTitle', { combo: formatCombo(HELP_COMBO) })}
+              aria-label={t('shell.shortcutsLabel')}
             >
               <Keyboard className="size-4" />
             </Button>
@@ -497,8 +528,8 @@ export function AppShell() {
             size="icon-sm"
             className="shell-sidebar__theme"
             onClick={toggle}
-            title={`Theme: ${mode}`}
-            aria-label={`Theme: ${mode}. Toggle theme`}
+            title={t('shell.themeTitle', { mode: themeName })}
+            aria-label={t('shell.themeToggleLabel', { mode: themeName })}
             aria-pressed={mode === 'dark'}
           >
             {mode === 'dark' ? <Moon className="size-4" /> : <Sun className="size-4" />}
@@ -509,7 +540,7 @@ export function AppShell() {
         <button
           type="button"
           className="shell-sidebar__backdrop"
-          aria-label="Close navigation"
+          aria-label={t('shell.navClose')}
           onClick={() => closeMobileDrawer(true)}
         />
       ) : null}
@@ -523,8 +554,8 @@ export function AppShell() {
           variant="ghost"
           size="icon"
           className="shell-mobile-menu"
-          title="Toggle menu"
-          aria-label="Toggle menu"
+          title={t('shell.navToggleMenu')}
+          aria-label={t('shell.navToggleMenu')}
           aria-controls="sidebar-nav"
           aria-expanded={sidebarOpen}
           onClick={() => {
@@ -541,7 +572,7 @@ export function AppShell() {
         {isChat ? (
           <section
             className="shell-chat-header"
-            aria-label="Chat toolbar"
+            aria-label={t('shell.chatToolbar')}
             data-testid="shell-chat-header"
           >
             <div className="shell-chat-header__identity">
@@ -549,7 +580,7 @@ export function AppShell() {
                 <MessageSquare />
               </span>
               <span className="shell-chat-header__copy">
-                <strong>Chat</strong>
+                <strong>{t('shell.viewChat')}</strong>
               </span>
             </div>
             <div
@@ -581,7 +612,7 @@ export function AppShell() {
             onPrimaryAction={() => setSidebarOpen(false)}
           >
             <div
-              key={location.pathname}
+              key={`${locale}:${location.pathname}`}
               className={`view-container ${
                 isChat ? 'chat-surface chat-view-enter' : 'control-surface view-enter'
               }`}

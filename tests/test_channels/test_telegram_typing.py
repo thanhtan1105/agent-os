@@ -95,24 +95,47 @@ async def test_telegram_send_typing_without_target_is_unsupported() -> None:
     assert result.reason == "no chat target"
 
 
-def test_telegram_typing_capability_selects_keepalive_policy() -> None:
+class _TypingOnlyTelegramChannel(TelegramChannel):
+    """Telegram pinned to ``typing_final`` so the keepalive path stays covered.
+
+    The real adapter streams now, and ``_start_typing_keepalive`` returns None
+    for streaming adapters — but the keepalive loop is still live for every
+    ``typing_final`` channel, and this is the only place it is exercised.
+    """
+
+    STREAM_UPDATE_STRATEGY = "typing_final"
+
+
+def test_telegram_streaming_capability_selects_adapter_stream_policy() -> None:
     channel = TelegramChannel(TelegramChannelConfig())
 
     policy = resolve_channel_stream_policy(channel)
 
     assert channel.capability_profile.typing_indicator is True
     assert ChannelCapabilities.TYPING_INDICATOR in channel.capabilities
+    assert policy.mode == "adapter_stream"
+    assert policy.relay_stream is True
+    assert policy.typing_keepalive is False
+    assert policy.typing_preamble is True
+    assert 0 < channel.typing_keepalive_interval_s < 5
+
+
+def test_telegram_typing_final_override_selects_keepalive_policy() -> None:
+    channel = _TypingOnlyTelegramChannel(TelegramChannelConfig())
+
+    policy = resolve_channel_stream_policy(channel)
+
     assert policy.mode == "typing_final"
     assert policy.relay_stream is False
     assert policy.typing_keepalive is True
-    assert 0 < channel.typing_keepalive_interval_s < 5
+    assert policy.typing_preamble is False
 
 
 @pytest.mark.asyncio
 async def test_telegram_keepalive_uses_inbound_chat_topic_and_adapter_cadence(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    channel = TelegramChannel(TelegramChannelConfig(token="token"))
+    channel = _TypingOnlyTelegramChannel(TelegramChannelConfig(token="token"))
     api_calls: list[tuple[str, dict[str, Any] | None]] = []
 
     async def fake_api(method: str, payload: dict[str, Any] | None = None) -> bool:
@@ -153,7 +176,7 @@ async def test_telegram_keepalive_uses_inbound_chat_topic_and_adapter_cadence(
 async def test_telegram_keepalive_treats_api_failure_as_best_effort(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    channel = TelegramChannel(TelegramChannelConfig(token="token"))
+    channel = _TypingOnlyTelegramChannel(TelegramChannelConfig(token="token"))
     attempts = 0
 
     async def failing_api(_method: str, _payload: dict[str, Any] | None = None) -> bool:
@@ -180,3 +203,57 @@ async def test_telegram_keepalive_treats_api_failure_as_best_effort(
 
     assert attempts == 1
     assert sleep_intervals == [4.0]
+
+
+@pytest.mark.asyncio
+async def test_telegram_streaming_shows_typing_until_the_first_chunk() -> None:
+    """A streaming Telegram turn still gets the indicator during model latency.
+
+    Nothing can be edited into the chat before the first token exists, and with
+    tool calls in the loop that wait is routinely tens of seconds — the
+    preamble covers exactly that gap, then releases on the stop signal.
+    """
+    channel = TelegramChannel(TelegramChannelConfig(token="token"))
+    api_calls: list[tuple[str, dict[str, Any] | None]] = []
+    first_call = asyncio.Event()
+
+    async def fake_api(method: str, payload: dict[str, Any] | None = None) -> bool:
+        api_calls.append((method, payload))
+        first_call.set()
+        return True
+
+    channel._api = fake_api  # type: ignore[method-assign]  # noqa: SLF001
+    inbound = IncomingMessage(sender_id="user-1", channel_id="-100123", content="hello")
+    first_chunk_sent = asyncio.Event()
+
+    task = channel_dispatch._start_typing_keepalive(  # noqa: SLF001
+        channel,
+        inbound,
+        stop_signal=first_chunk_sent,
+    )
+
+    assert task is not None
+    await asyncio.wait_for(first_call.wait(), timeout=1)
+    assert api_calls == [("sendChatAction", {"chat_id": "-100123", "action": "typing"})]
+
+    # The adapter now has text on screen: the indicator must stop on its own,
+    # without waiting to be cancelled.
+    first_chunk_sent.set()
+    await asyncio.wait_for(task, timeout=1)
+
+    assert task.cancelled() is False
+    assert api_calls == [("sendChatAction", {"chat_id": "-100123", "action": "typing"})]
+
+
+@pytest.mark.asyncio
+async def test_telegram_streaming_typing_needs_a_stop_signal() -> None:
+    """No signal, no preamble — never leave typing ticking under a live stream."""
+    channel = TelegramChannel(TelegramChannelConfig(token="token"))
+
+    async def unexpected_api(_method: str, _payload: dict[str, Any] | None = None) -> bool:
+        raise AssertionError("typing must not start without a stop signal")
+
+    channel._api = unexpected_api  # type: ignore[method-assign]  # noqa: SLF001
+    inbound = IncomingMessage(sender_id="user-1", channel_id="-100123", content="hello")
+
+    assert channel_dispatch._start_typing_keepalive(channel, inbound) is None  # noqa: SLF001

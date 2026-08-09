@@ -5,6 +5,10 @@
  * can be tested without a DOM — the same split the Skills and MCP views use.
  */
 
+// Registers this view's copy; it ships in this chunk, not the entry bundle.
+import '@/i18n/en/env'
+import { t } from '@/i18n'
+
 /** Shared so the Settings glance and the Environment screen hit one cache. */
 export const ENV_QUERY_KEY = ['env', 'list'] as const
 
@@ -48,32 +52,30 @@ export type EnvFilter = 'all' | 'missing' | 'set' | 'custom'
 /** Category order in the UI: what a new install configures first comes first. */
 const CATEGORY_ORDER = ['provider', 'search', 'image', 'audio', 'memory', 'skill', 'custom']
 
-const CATEGORY_LABELS: Record<string, string> = {
-  provider: 'LLM providers',
-  search: 'Search',
-  image: 'Image generation',
-  audio: 'Audio',
-  memory: 'Memory embedding',
-  skill: 'Skills',
-  custom: 'Your own variables',
-}
-
-const SOURCE_LABELS: Record<EnvSource, string> = {
-  process: 'process env',
-  cwd_file: 'project .env',
-  home_file: 'AgentOS .env',
-  unset: '',
-}
-
 /** POSIX-portable variable name — mirrors the server-side gate. */
 const ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
 
 export function categoryLabel(category: string): string {
-  return CATEGORY_LABELS[category] ?? category
+  const labels: Record<string, string> = {
+    provider: t('env.categoryProvider'),
+    search: t('env.categorySearch'),
+    image: t('env.categoryImage'),
+    audio: t('env.categoryAudio'),
+    memory: t('env.categoryMemory'),
+    skill: t('env.categorySkill'),
+    custom: t('env.categoryCustom'),
+  }
+  return labels[category] ?? category
 }
 
 export function sourceLabel(source: EnvSource): string {
-  return SOURCE_LABELS[source] ?? source
+  const labels: Record<EnvSource, string> = {
+    process: t('env.sourceProcess'),
+    cwd_file: t('env.sourceCwdFile'),
+    home_file: t('env.sourceHomeFile'),
+    unset: '',
+  }
+  return labels[source] ?? source
 }
 
 export function isValidEnvName(name: string): boolean {
@@ -178,13 +180,13 @@ export function summarize(payload: EnvListResponse | undefined): EnvSummary {
  */
 export function validateNewName(name: string, known: EnvVarRow[]): string | null {
   const trimmed = name.trim()
-  if (!trimmed) return 'Enter a variable name.'
+  if (!trimmed) return t('env.validateEmpty')
   if (!isValidEnvName(trimmed)) {
-    return 'Use letters, digits, and underscores, starting with a letter or underscore.'
+    return t('env.validateCharset')
   }
   const existing = known.find((row) => row.name === trimmed)
   if (existing && !existing.writable) {
-    return 'This name cannot be written through AgentOS.'
+    return t('env.validateReadOnly')
   }
   return null
 }
@@ -203,5 +205,5 @@ export function shortPath(path: string | undefined): string {
   if (!path) return ''
   const segments = path.split('/').filter(Boolean)
   if (segments.length <= 2) return path
-  return `…/${segments.slice(-2).join('/')}`
+  return t('env.shortPath', { tail: segments.slice(-2).join('/') })
 }

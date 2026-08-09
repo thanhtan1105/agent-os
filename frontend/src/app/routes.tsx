@@ -1,12 +1,13 @@
 import { lazy as reactLazy, Suspense, useEffect } from 'react'
 import { type RouteObject, useLocation } from 'react-router'
+import { t, type MessageKey } from '@/i18n'
 import { RouteErrorBoundary } from './RouteErrorBoundary'
 
 type LazyRoute = NonNullable<RouteObject['lazy']>
 
 interface ViewRoute {
   path: string
-  title: string
+  titleKey: MessageKey
   lazy: LazyRoute
 }
 
@@ -53,28 +54,32 @@ const loadEnv: LazyRoute = async () => ({
   Component: (await import('@/views/env/EnvPage')).EnvPage,
 })
 
+// The table holds catalog *keys*, never resolved strings: a route table is a
+// module constant, so a title resolved here would freeze at module-evaluation
+// time and survive a later locale change (#258).
 const VIEW_ROUTES: ReadonlyArray<ViewRoute> = [
-  { path: 'overview', title: 'Overview', lazy: loadOverview },
-  { path: 'health', title: 'Health', lazy: loadHealth },
-  { path: 'chat', title: 'Chat', lazy: loadChat },
-  { path: 'sessions', title: 'Sessions', lazy: loadSessions },
-  { path: 'agents', title: 'Agents', lazy: loadAgents },
-  { path: 'cron', title: 'Cron', lazy: loadCron },
-  { path: 'usage', title: 'Usage', lazy: loadUsage },
-  { path: 'settings', title: 'Agent Setup', lazy: loadSettings },
-  { path: 'config', title: 'Config', lazy: loadSettings },
-  { path: 'setup', title: 'Setup', lazy: loadSettings },
-  { path: 'channels', title: 'Channels', lazy: loadChannels },
-  { path: 'mcp', title: 'MCP Servers', lazy: loadMcp },
-  { path: 'approvals', title: 'Approvals', lazy: loadApprovals },
-  { path: 'skills', title: 'Skills', lazy: loadSkills },
-  { path: 'env', title: 'Environment', lazy: loadEnv },
-  { path: 'logs', title: 'Logs', lazy: loadLogs },
+  { path: 'overview', titleKey: 'shell.viewOverview', lazy: loadOverview },
+  { path: 'health', titleKey: 'shell.viewHealth', lazy: loadHealth },
+  { path: 'chat', titleKey: 'shell.viewChat', lazy: loadChat },
+  { path: 'sessions', titleKey: 'shell.viewSessions', lazy: loadSessions },
+  { path: 'agents', titleKey: 'shell.viewAgents', lazy: loadAgents },
+  { path: 'cron', titleKey: 'shell.viewCron', lazy: loadCron },
+  { path: 'usage', titleKey: 'shell.viewUsage', lazy: loadUsage },
+  { path: 'settings', titleKey: 'shell.viewSettings', lazy: loadSettings },
+  { path: 'config', titleKey: 'shell.viewConfig', lazy: loadSettings },
+  { path: 'setup', titleKey: 'shell.viewSetup', lazy: loadSettings },
+  { path: 'channels', titleKey: 'shell.viewChannels', lazy: loadChannels },
+  { path: 'mcp', titleKey: 'shell.viewMcp', lazy: loadMcp },
+  { path: 'approvals', titleKey: 'shell.viewApprovals', lazy: loadApprovals },
+  { path: 'skills', titleKey: 'shell.viewSkills', lazy: loadSkills },
+  { path: 'env', titleKey: 'shell.viewEnv', lazy: loadEnv },
+  { path: 'logs', titleKey: 'shell.viewLogs', lazy: loadLogs },
 ]
 
-export const VIEWS: ReadonlyArray<{ path: string; title: string }> = VIEW_ROUTES.map(
-  ({ path, title }) => ({ path, title }),
-)
+/** Resolved per call, so the titles follow the active locale. */
+export function getViews(): ReadonlyArray<{ path: string; title: string }> {
+  return VIEW_ROUTES.map(({ path, titleKey }) => ({ path, title: t(titleKey) }))
+}
 
 /**
  * Parity: js/router.js:32 — evaluated per resolve, not once at module load.
@@ -115,15 +120,19 @@ function NotFound() {
   // useLocation().pathname is basename-relative under react-router.
   const { pathname } = useLocation()
   useEffect(() => {
-    document.title = 'Not Found - AgentOS Control'
+    document.title = t('shell.routeNotFoundTitle')
   }, [])
-  return <div className="p-8 text-muted-foreground">{'Page not found: ' + pathname}</div>
+  return (
+    <div className="p-8 text-muted-foreground">
+      {t('shell.routeNotFoundBody', { path: pathname })}
+    </div>
+  )
 }
 
 function RoutePending() {
   return (
     <div className="p-8 text-muted-foreground" aria-hidden="true">
-      Opening view…
+      {t('shell.routePending')}
     </div>
   )
 }
