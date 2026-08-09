@@ -118,9 +118,12 @@ jobs:
           set -Eeuo pipefail
           compose=(docker compose --project-name "${COMPOSE_PROJECT_NAME}" \
             --project-directory "${DEPLOY_DIR}" -f "${DEPLOY_DIR}/current/compose.yaml")
+          gateway_image="${AGENTOS_GATEWAY_IMAGE:-agentos:local}"
 
-          sudo -n -u "${DEPLOY_USER}" -- "${compose[@]}" build --pull gateway
-          sudo -n -u "${DEPLOY_USER}" -- "${compose[@]}" up --detach --remove-orphans gateway
+          sudo -n -u "${DEPLOY_USER}" -- docker build --pull \
+            --tag "${gateway_image}" "${DEPLOY_DIR}/current"
+          sudo -n -u "${DEPLOY_USER}" -- env AGENTOS_GATEWAY_IMAGE="${gateway_image}" \
+            "${compose[@]}" up --detach --remove-orphans gateway
 
       - name: Verify gateway health
         shell: bash
